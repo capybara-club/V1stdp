@@ -340,8 +340,8 @@ int main(int argc, char* argv[])
 	cout << "Reading input data...." << endl;
 	int nbpatchesinfile = 0, totaldatasize = 0;
 
-// The stimulus patches are 17x17x2 in length, arranged linearly. See below for the setting of feedforward firing rates based on patch data.
-// See also  makepatchesImageNetInt8.m
+	// The stimulus patches are 17x17x2 in length, arranged linearly. See below for the setting of feedforward firing rates based on patch data.
+	// See also  makepatchesImageNetInt8.m
 
 	ifstream DataFile ("../patchesCenteredScaledBySumTo126ImageNetONOFFRotatedNewInt8.bin.dat", ios::in | ios::binary | ios::ate);
 	if (!DataFile.is_open()) { throw ios_base::failure("Failed to open the binary data file!"); return -1; }
@@ -372,14 +372,13 @@ int main(int argc, char* argv[])
 	int delays[NBNEUR][NBNEUR];
 	int delaysFF[FFRFSIZE][NBNEUR];
 
-	
 	// The incoming spikes (both lateral and FF) are stored in an array of vectors (one per neuron/incoming synapse); each vector is used as a circular array, containing the incoming spikes at this synapse at successive timesteps:
 	VectorXi incomingspikes[NBNEUR][NBNEUR];  
 	VectorXi incomingFFspikes[NBNEUR][FFRFSIZE];  
 
 	VectorXd v =  VectorXd::Constant(NBNEUR, -70.5); // VectorXd::Zero(NBNEUR); // -70.5 is approximately the resting potential of the Izhikevich neurons, as it is of the AdEx neurons used in Clopath's experiments
 
-// Initializations. 
+	// Initializations. 
 	VectorXi firings = VectorXi::Zero(NBNEUR);
 	VectorXi firingsprev = VectorXi::Zero(NBNEUR);
 	VectorXd Iff = VectorXd::Zero(NBNEUR);
@@ -408,7 +407,10 @@ int main(int argc, char* argv[])
 	MatrixXi spikesthisstepFF(NBNEUR, FFRFSIZE);
 	MatrixXi spikesthisstep(NBNEUR, NBNEUR);
 
-	double ALTDS[NBNEUR]; for (int nn=0; nn < NBNEUR; nn++) ALTDS[nn] = BASEALTD + RANDALTD*( (double)rand() / (double)RAND_MAX );
+	double ALTDS[NBNEUR]; 
+	for (int nn = 0; nn < NBNEUR; nn++) {
+		ALTDS[nn] = BASEALTD + RANDALTD*( (double)rand() / (double)RAND_MAX );
+	}
 
 	VectorXd lgnrates = VectorXd::Zero(FFRFSIZE);
 	VectorXd lgnratesS1 = VectorXd::Zero(FFRFSIZE);
@@ -471,7 +473,6 @@ int main(int argc, char* argv[])
 			incomingFFspikes[ni][nj] = VectorXi::Zero(mydelay); 
 		}
 	}
-	//myfile << endl; myfile.close();
 
 	// Initializations done, let's get to it!
 
@@ -481,10 +482,15 @@ int main(int argc, char* argv[])
 	// For each stimulus presentation...
 	for (int numpres = 0; numpres < NBPRES; numpres++) {
 		// Where are we in the data file?
-		int posindata = ((numpres % nbpatchesinfile) * FFRFSIZE / 2 ); 
-		if (PHASE == PULSE)
-			posindata = ((STIM1 % nbpatchesinfile) * FFRFSIZE / 2 ); 
-		if (posindata >= totaldatasize - FFRFSIZE / 2) { cerr << "Error: tried to read beyond data end.\n"; return -1; }
+		int posindata = ((numpres % nbpatchesinfile) * FFRFSIZE / 2 );
+		if (PHASE == PULSE) {
+			posindata = ((STIM1 % nbpatchesinfile) * FFRFSIZE / 2 );
+		}
+
+		if (posindata >= totaldatasize - FFRFSIZE / 2) { 
+			cerr << "Error: tried to read beyond data end.\n";
+			return -1; 
+		}
 
 		// Extracting the image data for this frame presentation, and preparing the LGN / FF output rates (notice the log-transform):
 		
@@ -493,8 +499,6 @@ int main(int argc, char* argv[])
 			lgnrates(nn + FFRFSIZE / 2) = log(1.0 + ((double)imagedata[posindata+nn] < 0 ? - MOD * (double)imagedata[posindata+nn] : 0));
 		}
 		lgnrates /= lgnrates.maxCoeff(); // Scale by max! The inputs are scaled to have a maximum of 1 (multiplied by INPUTMULT below)
-   
-
 
 		if (PHASE == MIXING) {
 			int posindata1 = ((STIM1 % nbpatchesinfile) * FFRFSIZE / 2 ); if (posindata1 >= totaldatasize - FFRFSIZE / 2) { cerr << "Error: tried to read beyond data end.\n"; return -1; }
@@ -514,8 +518,9 @@ int main(int argc, char* argv[])
 			lgnratesS1 /= lgnratesS1.maxCoeff(); // Scale by max!!
 			lgnratesS2 /= lgnratesS2.maxCoeff(); // Scale by max!!
 			
-			for (int nn = 0; nn < FFRFSIZE; nn++)
+			for (int nn = 0; nn < FFRFSIZE; nn++) {
 				lgnrates(nn) = mixval1 * lgnratesS1(nn) + mixval2 * lgnratesS2(nn);
+			}
 			
 		}
 
@@ -533,35 +538,33 @@ int main(int argc, char* argv[])
 		lgnfiringsprev.setZero();
 		firings.setZero();
 		firingsprev.setZero();
-		for (int ni=0; ni < NBNEUR ; ni++)
-			for (int nj=0; nj < NBNEUR ; nj++)
+		for (int ni = 0; ni < NBNEUR ; ni++) {
+			for (int nj = 0; nj < NBNEUR ; nj++) {
 				incomingspikes[ni][nj].fill(0);
+			}
+		}
 
 		// Stimulus presentation
-		for (int numstepthispres=0; numstepthispres < NBSTEPSPERPRES; numstepthispres++)
-		{
-
+		for (int numstepthispres = 0; numstepthispres < NBSTEPSPERPRES; numstepthispres++) {
 			// We determine FF spikes, based on the specified lgnrates:
-			
 			lgnfiringsprev = lgnfirings;
 
-			if (((PHASE == PULSE) && (numstepthispres >= (double)(PULSESTART)/dt) && (numstepthispres < (double)(PULSESTART + PULSETIME)/dt)) // In the PULSE case, inputs only fire for a short period of time
-					|| ((PHASE != PULSE) && (numstepthispres < NBSTEPSPERPRES - ((double)TIMEZEROINPUT / dt))))   // Otherwise, inputs only fire until the 'relaxation' period at the end of each presentation
-				for (int nn=0; nn < FFRFSIZE; nn++)
+			if (
+				(PHASE == PULSE && numstepthispres >= (double)(PULSESTART)/dt && numstepthispres < (double)(PULSESTART + PULSETIME)/dt) || // In the PULSE case, inputs only fire for a short period of time
+				(PHASE != PULSE && numstepthispres < NBSTEPSPERPRES - ((double)TIMEZEROINPUT / dt)) // Otherwise, inputs only fire until the 'relaxation' period at the end of each presentation
+			) { 
+				for (int nn=0; nn < FFRFSIZE; nn++) {
 					lgnfirings(nn) = (rand() / (double)RAND_MAX < abs(lgnrates(nn)) ? 1.0 : 0.0); // Note that this may go non-poisson if the specified lgnrates are too high (i.e. not << 1.0)
-			else
+				}
+			} else {
 				lgnfirings.setZero();
+			}
 			
-			
-			if (PHASE == SPONTANEOUS)
+			if (PHASE == SPONTANEOUS) {
 				lgnfirings.setZero();
-
-
+			}
 			// We compute the feedforward input:
- 
-
 			Iff.setZero();
-
 			// Using delays for FF connections from LGN makes the system MUCH slower, and doesn't change much. So we don't.
 			/*
 			// Compute the FF input from incoming spikes from LGN... as set in the *previous* timestep...
@@ -591,33 +594,25 @@ int main(int argc, char* argv[])
 
 			// This, which ignores FF delays, is much faster.... MAtrix multiplications courtesy of the Eigen library.
 			Iff =  wff * lgnfirings * VSTIM;
-
-
-
 			// Now we compute the lateral inputs. Remember that incomingspikes is a circular array.
 
 			VectorXd LatInput = VectorXd::Zero(NBNEUR);
 
 			spikesthisstep.setZero();
-			for (int ni=0; ni< NBNEUR; ni++)
-				for (int nj=0; nj< NBNEUR; nj++)
-				{
-					// If NOELAT, E-E synapses are disabled.
-					if (NOELAT && (nj < 100) && (ni < 100))
-						continue;
-					// No autapses
-					if (ni == nj)
-						 continue;
-					// If there is a spike at that synapse for the current timestep, we add it to the lateral input for this neuron
-					if (incomingspikes[ni][nj](numstep % delays[nj][ni]) > 0){
+			for (int ni = 0; ni < NBNEUR; ni++) {
+				for (int nj = 0; nj< NBNEUR; nj++) {
+					if (NOELAT && (nj < 100) && (ni < 100)) continue; // If NOELAT, E-E synapses are disabled.
+					if (ni == nj) continue; // No autapses	
 
-					LatInput(ni) += w(ni, nj) * incomingspikes[ni][nj](numstep % delays[nj][ni]);
+					// If there is a spike at that synapse for the current timestep, we add it to the lateral input for this neuron
+					if (incomingspikes[ni][nj](numstep % delays[nj][ni]) > 0) {
+						LatInput(ni) += w(ni, nj) * incomingspikes[ni][nj](numstep % delays[nj][ni]);
 						spikesthisstep(ni, nj) = 1;
-					// We erase any incoming spikes for this synapse/timestep 
-					incomingspikes[ni][nj](numstep % delays[nj][ni]) = 0;
+						// We erase any incoming spikes for this synapse/timestep 
+						incomingspikes[ni][nj](numstep % delays[nj][ni]) = 0;
 					}
 				}
-
+			}
 
 			Ilat = LATCONNMULT * VSTIM * LatInput;
 
@@ -708,34 +703,47 @@ int main(int argc, char* argv[])
 			vneg = vneg + (dt / TAUVNEG) * (vprevprev - vneg);
 			vpos = vpos + (dt / TAUVPOS) * (vprevprev - vpos);
 			
-			
+			// Plasticity !
 			if (PHASE == LEARNING && numpres >= 401) {
-
-				// Plasticity !
-
 				// For each neuron, we compute the quantities by which any synapse reaching this given neuron should be modified, if the synapse's firing / recent activity (xplast) commands modification.
-				for (int nn=0; nn <  NBE; nn++)
+				for (int nn=0; nn <  NBE; nn++) {
 					EachNeurLTD(nn) =  dt * (-ALTDS[nn] / VREF2) * vlongtrace(nn) * vlongtrace(nn) * ((vneg(nn) - THETAVNEG) <0 ? 0 : (vneg(nn) -THETAVNEG));
-				for (int nn=0; nn < NBE; nn++)
+				}
+
+				for (int nn=0; nn < NBE; nn++) {
 					EachNeurLTP(nn) =  dt * ALTP  * ALTPMULT * ((vpos(nn) - THETAVNEG)<0 ? 0 : (vpos(nn) - THETAVNEG) ) * ((v(nn) - THETAVPOS) < 0 ? 0 : (v(nn) - THETAVPOS));
+				}
 
 				// Feedforward synapses, then lateral synapses.
-				for (int syn=0; syn < FFRFSIZE; syn++)
-						for (int nn=0; nn < NBE; nn++)
-							wff(nn, syn) += xplast_ff(syn) * EachNeurLTP(nn);
-				for (int syn=0; syn < FFRFSIZE; syn++)
-					if (lgnfirings(syn) > 1e-10)
-						for (int nn=0; nn < NBE; nn++)
+				for (int syn=0; syn < FFRFSIZE; syn++) {
+					for (int nn=0; nn < NBE; nn++) {
+						wff(nn, syn) += xplast_ff(syn) * EachNeurLTP(nn);
+					}
+				}
+
+				for (int syn=0; syn < FFRFSIZE; syn++) {
+					if (lgnfirings(syn) > 1e-10) {
+						for (int nn=0; nn < NBE; nn++) {
 							//if (spikesthisstepFF(nn, syn) > 0)
-								wff(nn, syn) +=  EachNeurLTD(nn) * (1.0 + wff(nn,syn) * WPENSCALE);
-				for (int syn=0; syn < NBE; syn++)
-						for (int nn=0; nn < NBE; nn++)
-							w(nn, syn) += xplast_lat(syn) * EachNeurLTP(nn);
-				for (int syn=0; syn < NBE; syn++)
-				//    if (firingsprev(syn) > 1e-10)
-						for (int nn=0; nn < NBE; nn++)
-							if (spikesthisstep(nn, syn) > 0)
-								w(nn, syn) +=  EachNeurLTD(nn) * (1.0 + w(nn,syn) * WPENSCALE);
+							wff(nn, syn) +=  EachNeurLTD(nn) * (1.0 + wff(nn,syn) * WPENSCALE);
+						}
+					}
+				}
+
+				for (int syn=0; syn < NBE; syn++) {
+					for (int nn=0; nn < NBE; nn++) {
+						w(nn, syn) += xplast_lat(syn) * EachNeurLTP(nn);
+					}
+				}
+				
+				for (int syn=0; syn < NBE; syn++) {
+					// if (firingsprev(syn) > 1e-10)
+					for (int nn=0; nn < NBE; nn++) {
+						if (spikesthisstep(nn, syn) > 0) {
+							w(nn, syn) +=  EachNeurLTD(nn) * (1.0 + w(nn,syn) * WPENSCALE);
+						}
+					}
+				}
 						
 				w = w - w.cwiseProduct(MatrixXd::Identity(NBNEUR, NBNEUR)); // Diagonal lateral weights are 0!
 				wff = wff.cwiseMax(0);
@@ -759,8 +767,6 @@ int main(int argc, char* argv[])
 			numstep++;
 		}
 
-
-
 		sumwff(numpres) = wff.sum();
 		sumw(numpres) = w.sum();
 		if (numpres % 100 == 0) {
@@ -771,7 +777,7 @@ int main(int argc, char* argv[])
 			cout << "Vlongtraces: " << vlongtrace.transpose() << endl;
 			cout << " Max LGN rate (should be << 1.0): " << lgnrates.maxCoeff() << endl;
 		}
-		if ((numpres + 1) % 10000 == 0 || numpres+1 == NBPRES) {
+		if ((numpres + 1) % 10000 == 0 || numpres + 1 == NBPRES) {
 			std::string nolatindicator ("");
 			std::string noinhindicator ("");
 			std::string nospikeindicator ("");
@@ -782,65 +788,65 @@ int main(int argc, char* argv[])
 
 			myfile.open("lastnspikes"+nolatindicator+".txt", ios::trunc | ios::out);  myfile << endl << lastnspikes << endl; myfile.close();
 
-			if (PHASE == TESTING) {
-				myfile.open("resps_test.txt", ios::trunc | ios::out);  myfile << endl << resps << endl; myfile.close();
-				//myfile.open("respssumv_test.txt", ios::trunc | ios::out);  myfile << endl << respssumv << endl; myfile.close();
-				myfile.open("lastnv_test"+nolatindicator+noinhindicator+".txt", ios::trunc | ios::out);  myfile << endl << lastnv << endl; myfile.close();
-				//myfile.open("lastnv_spont"+nolatindicator+noinhindicator+".txt", ios::trunc | ios::out);  myfile << endl << lastnv << endl; myfile.close();
-			}
-			if (PHASE == SPONTANEOUS) {
-				myfile.open("resps_spont.txt", ios::trunc | ios::out);  myfile << endl << resps << endl; myfile.close();
-				myfile.open("lastnspikes_spont"+nolatindicator+noinhindicator+".txt", ios::trunc | ios::out);  myfile << endl << lastnspikes << endl; myfile.close();
-			}
-			if (PHASE == PULSE) {
-				myfile.open("resps_pulse"+nolatindicator+noinhindicator+".txt", ios::trunc | ios::out);  myfile << endl << resps << endl; myfile.close();
-				myfile.open("resps_pulse_"+std::to_string((long long int)STIM1)+".txt", ios::trunc | ios::out);  myfile << endl << resps << endl; myfile.close();
-				myfile.open("lastnspikes_pulse"+nolatindicator+noinhindicator+".txt", ios::trunc | ios::out);  myfile << endl << lastnspikes << endl; myfile.close();
-				myfile.open("lastnspikes_pulse_"+std::to_string((long long int)STIM1)+nolatindicator+noinhindicator+".txt", ios::trunc | ios::out);  myfile << endl << lastnspikes << endl; myfile.close();
-				//myfile.open("lastnv_pulse_"+std::to_string((long long int)STIM1)+nolatindicator+noinhindicator+".txt", ios::trunc | ios::out);  myfile << endl << lastnv << endl; myfile.close();
-			}
-			if (PHASE == MIXING) {
-				myfile.open("respssumv_mix" + nolatindicator + noinhindicator + nospikeindicator + ".txt", ios::trunc | ios::out);  myfile << endl << respssumv << endl; myfile.close();
-				myfile.open("resps_mix" + nolatindicator +noinhindicator + nospikeindicator +  ".txt", ios::trunc | ios::out);  myfile << endl << resps << endl; myfile.close();
-				myfile.open("respssumv_mix"+std::to_string((long long int)STIM1)+"_"+std::to_string((long long int)STIM2) + nolatindicator + noinhindicator + nospikeindicator + ".txt", ios::trunc | ios::out);  myfile << endl << respssumv << endl; myfile.close();
-				myfile.open("resps_mix_"+std::to_string((long long int)STIM1)+"_"+std::to_string((long long int)STIM2) + nolatindicator + noinhindicator + nospikeindicator + ".txt", ios::trunc | ios::out);  myfile << endl << resps << endl; myfile.close();
-			}
-			if (PHASE == LEARNING) {
-				cout << "(Saving temporary data ... )" << endl;
+			switch(PHASE) {
+				case TESTING: {
+					myfile.open("resps_test.txt", ios::trunc | ios::out);  myfile << endl << resps << endl; myfile.close();
+					//myfile.open("respssumv_test.txt", ios::trunc | ios::out);  myfile << endl << respssumv << endl; myfile.close();
+					myfile.open("lastnv_test"+nolatindicator+noinhindicator+".txt", ios::trunc | ios::out);  myfile << endl << lastnv << endl; myfile.close();
+					//myfile.open("lastnv_spont"+nolatindicator+noinhindicator+".txt", ios::trunc | ios::out);  myfile << endl << lastnv << endl; myfile.close();
+				} break;
+				case SPONTANEOUS: {
+					myfile.open("resps_spont.txt", ios::trunc | ios::out);  myfile << endl << resps << endl; myfile.close();
+					myfile.open("lastnspikes_spont"+nolatindicator+noinhindicator+".txt", ios::trunc | ios::out);  myfile << endl << lastnspikes << endl; myfile.close();
+				} break;
+				case PULSE: {
+					myfile.open("resps_pulse"+nolatindicator+noinhindicator+".txt", ios::trunc | ios::out);  myfile << endl << resps << endl; myfile.close();
+					myfile.open("resps_pulse_"+std::to_string((long long int)STIM1)+".txt", ios::trunc | ios::out);  myfile << endl << resps << endl; myfile.close();
+					myfile.open("lastnspikes_pulse"+nolatindicator+noinhindicator+".txt", ios::trunc | ios::out);  myfile << endl << lastnspikes << endl; myfile.close();
+					myfile.open("lastnspikes_pulse_"+std::to_string((long long int)STIM1)+nolatindicator+noinhindicator+".txt", ios::trunc | ios::out);  myfile << endl << lastnspikes << endl; myfile.close();
+					//myfile.open("lastnv_pulse_"+std::to_string((long long int)STIM1)+nolatindicator+noinhindicator+".txt", ios::trunc | ios::out);  myfile << endl << lastnv << endl; myfile.close();
+				} break;
+				case MIXING: {
+					myfile.open("respssumv_mix" + nolatindicator + noinhindicator + nospikeindicator + ".txt", ios::trunc | ios::out);  myfile << endl << respssumv << endl; myfile.close();
+					myfile.open("resps_mix" + nolatindicator +noinhindicator + nospikeindicator +  ".txt", ios::trunc | ios::out);  myfile << endl << resps << endl; myfile.close();
+					myfile.open("respssumv_mix"+std::to_string((long long int)STIM1)+"_"+std::to_string((long long int)STIM2) + nolatindicator + noinhindicator + nospikeindicator + ".txt", ios::trunc | ios::out);  myfile << endl << respssumv << endl; myfile.close();
+					myfile.open("resps_mix_"+std::to_string((long long int)STIM1)+"_"+std::to_string((long long int)STIM2) + nolatindicator + noinhindicator + nospikeindicator + ".txt", ios::trunc | ios::out);  myfile << endl << resps << endl; myfile.close();
+				} break;
+				case LEARNING: {
+					cout << "(Saving temporary data ... )" << endl;
 
-				myfile.open("w.txt", ios::trunc | ios::out);
-				myfile << endl << w << endl;
-				myfile.close();
-				myfile.open("wff.txt", ios::trunc | ios::out);  myfile << endl << wff << endl; myfile.close();
-				if ((numpres +1)%  50000 == 0) 
-				{ 
-					char tmpstr[80]; 
-					sprintf(tmpstr, "%s%d%s", "wff_", numpres+1, ".txt"); myfile.open(tmpstr, ios::trunc | ios::out);  myfile << endl << wff << endl; myfile.close(); 
-					sprintf(tmpstr, "%s%d%s", "w_", numpres+1, ".txt"); myfile.open(tmpstr, ios::trunc | ios::out);  myfile << endl << w << endl; myfile.close(); 
-					saveWeights(w, "w_" + std::to_string( (long long int) (numpres+1)) +".dat");
-					saveWeights(wff, "wff_" + std::to_string( (long long int) (numpres+1)) +".dat");
-				}
-				myfile.open("resps.txt", ios::trunc | ios::out);
-				myfile << endl << resps << endl;
-				myfile.close();
-				//myfile.open("patterns.txt", ios::trunc | ios::out);  myfile << endl << patterns << endl; myfile.close();
-				/*myfile.open("lgninputs.txt", ios::trunc | ios::out); myfile << endl << lgninputs << endl; myfile.close();
-				myfile.open("meanvneg.txt", ios::trunc | ios::out); myfile << endl << meanvneg << endl; myfile.close();
-				myfile.open("meanvpos.txt", ios::trunc | ios::out); myfile << endl << meanvpos << endl; myfile.close();
-				myfile.open("meanENLTD.txt", ios::trunc | ios::out); myfile << endl << meanENLTD << endl; myfile.close();
-				myfile.open("meanENLTP.txt", ios::trunc | ios::out); myfile << endl << meanENLTP << endl; myfile.close();*/
-				/*myfile.open("meanvlt.txt", ios::trunc | ios::out);
-				myfile << endl << meanvlongtrace << endl;
-				myfile.close();*/
-				//myfile.open("sumwff.txt", ios::trunc | ios::out); myfile << endl << sumwff << endl;
-				//myfile.close();
-				saveWeights(w, "w.dat");
-				saveWeights(wff, "wff.dat");
+					myfile.open("w.txt", ios::trunc | ios::out);
+					myfile << endl << w << endl;
+					myfile.close();
+					myfile.open("wff.txt", ios::trunc | ios::out);  myfile << endl << wff << endl; myfile.close();
+					if ((numpres +1)%  50000 == 0) 
+					{ 
+						char tmpstr[80]; 
+						sprintf(tmpstr, "%s%d%s", "wff_", numpres+1, ".txt"); myfile.open(tmpstr, ios::trunc | ios::out);  myfile << endl << wff << endl; myfile.close(); 
+						sprintf(tmpstr, "%s%d%s", "w_", numpres+1, ".txt"); myfile.open(tmpstr, ios::trunc | ios::out);  myfile << endl << w << endl; myfile.close(); 
+						saveWeights(w, "w_" + std::to_string( (long long int) (numpres+1)) +".dat");
+						saveWeights(wff, "wff_" + std::to_string( (long long int) (numpres+1)) +".dat");
+					}
+					myfile.open("resps.txt", ios::trunc | ios::out);
+					myfile << endl << resps << endl;
+					myfile.close();
+					//myfile.open("patterns.txt", ios::trunc | ios::out);  myfile << endl << patterns << endl; myfile.close();
+					/*myfile.open("lgninputs.txt", ios::trunc | ios::out); myfile << endl << lgninputs << endl; myfile.close();
+					myfile.open("meanvneg.txt", ios::trunc | ios::out); myfile << endl << meanvneg << endl; myfile.close();
+					myfile.open("meanvpos.txt", ios::trunc | ios::out); myfile << endl << meanvpos << endl; myfile.close();
+					myfile.open("meanENLTD.txt", ios::trunc | ios::out); myfile << endl << meanENLTD << endl; myfile.close();
+					myfile.open("meanENLTP.txt", ios::trunc | ios::out); myfile << endl << meanENLTP << endl; myfile.close();*/
+					/*myfile.open("meanvlt.txt", ios::trunc | ios::out);
+					myfile << endl << meanvlongtrace << endl;
+					myfile.close();*/
+					//myfile.open("sumwff.txt", ios::trunc | ios::out); myfile << endl << sumwff << endl;
+					//myfile.close();
+					saveWeights(w, "w.dat");
+					saveWeights(wff, "wff.dat");
+				} break;
 			}
 		}
-
 	}
-
 }
 
 /*
