@@ -11,9 +11,18 @@
 #include <Eigen/Dense>
 #include <mmap_file.h>
 #include <filesystem>
+#include <assert.h>
 
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
+
+#define ASSERT(X) \
+	do {                                                            \
+		if (!(X)) {                                                 \
+			assert(false);                                          \
+			exit(EXIT_SUCCESS);                                     \
+		}                                                           \
+	} while(0)
 
 #define NONE 0
 #define LEARNING 1234
@@ -372,14 +381,6 @@ int main(int argc, char* argv[])
 		negnoisein.setZero();
 	}
 
-	// Note that delays indices are arranged in "from"-"to" order (different from incomingspikes[i][j]. where i is the target neuron and j is the source synapse)
-	int delays[NBNEUR][NBNEUR];
-	int delaysFF[FFRFSIZE][NBNEUR];
-
-	// The incoming spikes (both lateral and FF) are stored in an array of vectors (one per neuron/incoming synapse); each vector is used as a circular array, containing the incoming spikes at this synapse at successive timesteps:
-	VectorXi incomingspikes[NBNEUR][NBNEUR];  
-	VectorXi incomingFFspikes[NBNEUR][FFRFSIZE];  
-
 	VectorXd v =  VectorXd::Constant(NBNEUR, VREST); // VectorXd::Zero(NBNEUR); // -70.5 is approximately the resting potential of the Izhikevich neurons, as it is of the AdEx neurons used in Clopath's experiments
 
 	// Initializations. 
@@ -391,13 +392,12 @@ int main(int argc, char* argv[])
 	// Correct initialization for vlongtrace.
 	VectorXd vlongtrace = VectorXd::Constant(NBNEUR, VREST - THETAVLONGTRACE).cwiseMax(0);
 
-	VectorXi ZeroV = VectorXi::Zero(NBNEUR); VectorXi OneV = VectorXi::Constant(NBNEUR, 1); 
+	VectorXi ZeroV = VectorXi::Zero(NBNEUR);
+	VectorXi OneV = VectorXi::Constant(NBNEUR, 1);
 	VectorXd z = VectorXd::Zero(NBNEUR);
 	VectorXd wadap = VectorXd::Zero(NBNEUR);
 	VectorXd vthresh = VectorXd::Constant(NBNEUR, VTREST);
 	VectorXi isspiking = VectorXi::Zero(NBNEUR);
-
-	MatrixXi spikesthisstep(NBNEUR, NBNEUR);
 
 	double ALTDS[NBNEUR]; 
 	for (int nn = 0; nn < NBNEUR; nn++) {
@@ -414,7 +414,11 @@ int main(int argc, char* argv[])
 	MatrixXi resps = MatrixXi::Zero(NBNEUR, NBRESPS);
 	MatrixXd respssumv = MatrixXd::Zero(NBNEUR, NBRESPS);
 	
-	double mixvals[NBMIXES]; for (int nn=0; nn < NBMIXES; nn++) mixvals[nn] = (double)nn / (double)(NBMIXES - 1); // NBMIXES values equally spaced from 0 to 1 inclusive.
+	double mixvals[NBMIXES];
+	for (int nn = 0; nn < NBMIXES; nn++) {
+		// NBMIXES values equally spaced from 0 to 1 inclusive.
+		mixvals[nn] = (double)nn / (double)(NBMIXES - 1); 
+	}
 
 	fstream myfile;
 			
@@ -433,6 +437,11 @@ int main(int argc, char* argv[])
 	// There's very likely simpler ways to do it.
 
 	// DELAYPARAM should be a small value (3 to 6). It controls the median of the exponential.
+	int delays[NBNEUR][NBNEUR];
+	VectorXi incomingspikes[NBNEUR][NBNEUR];
+
+	MatrixXi incomingSpikes2 = MatrixXi::Zero(NBNEUR, NBNEUR);
+
 	for (int ni = 0; ni < NBNEUR; ni++) {
 		for (int nj = 0; nj < NBNEUR; nj++) {
 			double val = (double)rand() / (double)RAND_MAX;
@@ -449,19 +458,28 @@ int main(int argc, char* argv[])
 	}
  
 	// NOTE: We implement the machinery for feedforward delays, but they are NOT used (see below).   
-	//myfile.open("delays.txt", ios::trunc | ios::out);  
+	//myfile.open("delays.txt", ios::trunc | ios::out); 
+	// int delaysFF[FFRFSIZE][NBNEUR];
+	// VectorXi incomingFFspikes[NBNEUR][FFRFSIZE];  
+	// for (int ni = 0; ni < NBNEUR; ni++) {
+	// 	for (int nj = 0; nj < FFRFSIZE; nj++) {
+	// 		double val = (double)rand() / (double)RAND_MAX;
+	// 		double crit = 0.2;
+	// 		int mydelay = 1;
+	// 		for (; mydelay <= MAXDELAYDT; mydelay++) {
+	// 			if (val < crit) break;
+	// 			val = 5.0 * (val - crit) / 4.0 ;
+	// 		}
+	// 		if (mydelay > MAXDELAYDT) mydelay = 1;
+	// 		delaysFF[nj][ni] = mydelay;
+	// 		incomingFFspikes[ni][nj] = VectorXi::Zero(mydelay); 
+	// 	}
+	// }
+
+	// Keeping this to keep seed the same (still matching original)
 	for (int ni = 0; ni < NBNEUR; ni++) {
 		for (int nj = 0; nj < FFRFSIZE; nj++) {
-			double val = (double)rand() / (double)RAND_MAX;
-			double crit = 0.2;
-			int mydelay = 1;
-			for (; mydelay <= MAXDELAYDT; mydelay++) {
-				if (val < crit) break;
-				val = 5.0 * (val - crit) / 4.0 ;
-			}
-			if (mydelay > MAXDELAYDT) mydelay = 1;
-			delaysFF[nj][ni] = mydelay;
-			incomingFFspikes[ni][nj] = VectorXi::Zero(mydelay); 
+			rand();
 		}
 	}
 
@@ -529,6 +547,7 @@ int main(int argc, char* argv[])
 		for (int ni = 0; ni < NBNEUR ; ni++) {
 			for (int nj = 0; nj < NBNEUR ; nj++) {
 				incomingspikes[ni][nj].fill(0);
+				incomingSpikes2(ni,nj) = 0;
 			}
 		}
 
@@ -551,16 +570,18 @@ int main(int argc, char* argv[])
 			}
 
 			// We compute the feedforward input: (see original comments)
-			VectorXd Iff = wff * lgnfirings * VSTIM;
 			VectorXd LatInput = VectorXd::Zero(NBNEUR);
-
-			// MatrixXi spikesthisstep = MatrixXi::Zero(NBNEUR, NBNEUR);
-			spikesthisstep.setZero();
+			MatrixXi spikesthisstep = MatrixXi::Zero(NBNEUR, NBNEUR);
 			for (int ni = 0; ni < NBNEUR; ni++) {
 				for (int nj = 0; nj< NBNEUR; nj++) {
-					if (NOELAT && (nj < 100) && (ni < 100)) continue; // If NOELAT, E-E synapses are disabled.
-					if (ni == nj) continue; // No autapses	
+					if (NOELAT && nj < 100 && ni < 100) continue; // If NOELAT, E-E synapses are disabled.
+					if (ni == nj) continue; // No autapses
 
+					int v = incomingSpikes2(ni,nj);
+					int b = v & 1;
+					incomingSpikes2(ni,nj) = v >> 1;
+					int b2 = incomingspikes[ni][nj](numstep % delays[nj][ni]);
+					ASSERT(b == b2);
 					// If there is a spike at that synapse for the current timestep, we add it to the lateral input for this neuron
 					if (incomingspikes[ni][nj](numstep % delays[nj][ni]) > 0) {
 						LatInput(ni) += w(ni, nj) * incomingspikes[ni][nj](numstep % delays[nj][ni]);
@@ -571,6 +592,7 @@ int main(int argc, char* argv[])
 				}
 			}
 
+			VectorXd Iff = wff * lgnfirings * VSTIM;
 			VectorXd Ilat = LATCONNMULT * VSTIM * LatInput;
 
 			// This disables all lateral connections - Inhibitory and excitatory
@@ -590,11 +612,11 @@ int main(int argc, char* argv[])
 
 			// AdEx  neurons:
 			if (NOSPIKE) {
-				for (int nn=0; nn < NBNEUR; nn++) {
+				for (int nn = 0; nn < NBNEUR; nn++) {
 					v(nn) += (dt/C) * (-Gleak * (v(nn)-Eleak) + z(nn) - wadap(nn) ) + I(nn);
 				}
 			} else {
-				for (int nn=0; nn < NBNEUR; nn++) {
+				for (int nn = 0; nn < NBNEUR; nn++) {
 					v(nn) += (dt/C) * (-Gleak * (v(nn)-Eleak) + z(nn) - wadap(nn) + Gleak * DELTAT * exp((v(nn) - vthresh(nn)) / DELTAT ) ) + I(nn);
 				}
 			}
@@ -622,7 +644,9 @@ int main(int argc, char* argv[])
 				for (int ni = 0; ni < NBNEUR; ni++) {
 					if (!firings[ni]) continue;
 					for (int nj=0; nj < NBNEUR; nj++) {
+						int fire = nj != ni;
 						incomingspikes[nj][ni]( (numstep + delays[ni][nj]) % delays[ni][nj] ) = 1;
+						incomingSpikes2(nj,ni) = incomingSpikes2(nj,ni) | (fire << (delays[ni][nj] - 1));
 					}
 				}
 			}
