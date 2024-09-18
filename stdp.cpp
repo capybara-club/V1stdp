@@ -602,6 +602,8 @@ int main(int argc, char* argv[])
 			v = (isspiking.array() > 0).select(VPEAK - 0.001, v); // Currently-spiking neurons are clamped at VPEAK.
 			v = (isspiking.array() == 1).select(VRESET, v); //  Neurons that have finished their spiking are set to VRESET.
 			v = v.cwiseMax(MINV);
+
+			// After v update
 			
 			// Updating some AdEx / plasticity variables
 			z = (isspiking.array() == 1).select(Isp, z);
@@ -644,17 +646,15 @@ int main(int argc, char* argv[])
 					double eachNeurLTP =  dt * ALTP  * ALTPMULT * MAX(0, vpos(nn) - THETAVNEG) * MAX(0, v(nn) - THETAVPOS);
 
 					for (int syn = 0; syn < FFRFSIZE; syn++) {
+						double lgnfirings_mul = lgnfirings(syn) > 1e-10 ? 1.0 : 0.0;
 						wff(nn, syn) += xplast_ff(syn) * eachNeurLTP;
-						if (lgnfirings(syn) > 1e-10) {
-							wff(nn, syn) += eachNeurLTD * (1.0 + wff(nn,syn) * WPENSCALE);
-						}
+						wff(nn, syn) += lgnfirings_mul * eachNeurLTD * (1.0 + wff(nn,syn) * WPENSCALE);
 					}
 
 					for (int syn = 0; syn < NBE; syn++) {
+						double incoming_spikes_mul = incoming_spikes[nn][syn] & 1 > 0 ? 1.0 : 0.0;
 						w(nn, syn) += xplast_lat(syn) * eachNeurLTP;
-						if (incoming_spikes[nn][syn] & 1) {
-							w(nn, syn) += eachNeurLTD * (1.0 + w(nn,syn) * WPENSCALE);
-						}
+						w(nn, syn) += incoming_spikes_mul * eachNeurLTD * (1.0 + w(nn,syn) * WPENSCALE);
 					}
 				}
 				w.diagonal().setZero();
