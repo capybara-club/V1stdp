@@ -12,6 +12,8 @@
 #include <mmap_file.h>
 #include <filesystem>
 
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
+#define MIN(a, b) ((a) < (b) ? (a) : (b))
 
 #define NONE 0
 #define LEARNING 1234
@@ -43,7 +45,8 @@
 #define VSTIM 1.0
 
 #define TIMEZEROINPUT 100
-#define NBPATTERNSLEARNING 500000
+// #define NBPATTERNSLEARNING 500000
+#define NBPATTERNSLEARNING 601
 #define NBPATTERNSTESTING 1000 // 1000 
 #define NBPATTERNSPULSE 50 
 #define PRESTIMEMIXING 350 // in ms
@@ -78,6 +81,9 @@
 #define VTREST -50.4
 #define VPEAK 20  // Also in mV 
 #define VRESET Eleak
+
+// -70.5 is approximately the resting potential of the Izhikevich neurons, as it is of the AdEx neurons used in Clopath's experiments
+#define VREST -70.5 
 
 
 #define THETAVLONGTRACE  -45.3 // -45.3 //MINV // Eleak // VTMAX
@@ -279,8 +285,7 @@ int main(int argc, char* argv[])
 		w = w - w.cwiseProduct(MatrixXd::Identity(NBNEUR, NBNEUR)); // Diagonal lateral weights are 0 (no autapses !)
 		wff =  (WFFINITMIN + (WFFINITMAX-WFFINITMIN) * MatrixXd::Random(NBNEUR, FFRFSIZE).cwiseAbs().array()).cwiseMin(MAXW) ; //MatrixXd::Random(NBNEUR, NBNEUR).cwiseAbs();
 		wff.bottomRows(NBI).setZero(); // Inhibitory neurons do not receive FF excitation from the sensory RFs (should they? TRY LATER)
-	}
-	else if (PHASE == PULSE) {
+	} else if (PHASE == PULSE) {
 		NBPATTERNS = NBPATTERNSPULSE; PRESTIME = PRESTIMEPULSE; NBPRES = NBPATTERNS; //* NBPRESPERPATTERNTESTING;
 		if (argc < 3) { cerr << endl << "Error: When using 'pulse', you must provide the number of the stimulus you want to pulse." << endl; return -1; }
 		STIM1 = std::stoi(argv[2]) -1; // -1 because of c++ zero-counting (the nth pattern has location n-1 in the array)
@@ -290,8 +295,7 @@ int main(int argc, char* argv[])
 		readWeights(w, "w.dat");
 		readWeights(wff, "wff.dat");
 		cout << "Pulse input time: " << PULSETIME << " ms" << endl;
-	}
-	else if (PHASE == TESTING) {
+	} else if (PHASE == TESTING) {
 		NBPATTERNS = NBPATTERNSTESTING; PRESTIME = PRESTIMETESTING; NBPRES = NBPATTERNS; //* NBPRESPERPATTERNTESTING;
 		NBLASTSPIKESPRES = 30;
 		NBRESPS = NBPRES;
@@ -302,16 +306,14 @@ int main(int argc, char* argv[])
 		
 		//w.bottomRows(NBI).leftCols(NBE).fill(1.0); // Inhbitory neurons receive excitatory inputs from excitatory neurons
 		//w.rightCols(NBI).fill(-1.0); // Everybody receives fixed, negative inhibition (including inhibitory neurons)
-	}
-	else if (PHASE == SPONTANEOUS) {
+	} else if (PHASE == SPONTANEOUS) {
 		NBPATTERNS = NBPATTERNSSPONT; PRESTIME = PRESTIMESPONT; NBPRES = NBPATTERNS; //* NBPRESPERPATTERNTESTING;
 		NBLASTSPIKESPRES = NBPATTERNS;
 		NBRESPS = NBPRES;
 		readWeights(w, "w.dat");
 		readWeights(wff, "wff.dat");
 		cout << "Spontaneous activity - no stimulus !" << endl;
-	}
-	else if (PHASE == MIXING) {
+	} else if (PHASE == MIXING) {
 		NBPATTERNS = 2; PRESTIME = PRESTIMEMIXING ; NBPRES = NBMIXES * 3; //* NBPRESPERPATTERNTESTING;
 		NBLASTSPIKESPRES = 30;
 		NBRESPS = NBPRES;
@@ -321,8 +323,7 @@ int main(int argc, char* argv[])
 		STIM1 = std::stoi(argv[2]) -1;
 		STIM2 = std::stoi(argv[3]) -1;
 		cout << "Stim1, Stim2: " << STIM1 << ", " << STIM2 <<endl;
-	}
-	else { 
+	} else { 
 		cerr << "Which phase?\n"; return -1;
 	}
 	cout << "Lat. conn.: " << LATCONNMULT << endl;
@@ -344,7 +345,10 @@ int main(int argc, char* argv[])
 	// See also  makepatchesImageNetInt8.m
 
 	ifstream DataFile ("../patchesCenteredScaledBySumTo126ImageNetONOFFRotatedNewInt8.bin.dat", ios::in | ios::binary | ios::ate);
-	if (!DataFile.is_open()) { throw ios_base::failure("Failed to open the binary data file!"); return -1; }
+	if (!DataFile.is_open()) { 
+		throw ios_base::failure("Failed to open the binary data file!");
+		return -1;
+	}
 	ifstream::pos_type  fsize = DataFile.tellg();
 	char *membuf = new char[fsize];
 	DataFile.seekg (0, ios::beg);
@@ -376,35 +380,23 @@ int main(int argc, char* argv[])
 	VectorXi incomingspikes[NBNEUR][NBNEUR];  
 	VectorXi incomingFFspikes[NBNEUR][FFRFSIZE];  
 
-	VectorXd v =  VectorXd::Constant(NBNEUR, -70.5); // VectorXd::Zero(NBNEUR); // -70.5 is approximately the resting potential of the Izhikevich neurons, as it is of the AdEx neurons used in Clopath's experiments
+	VectorXd v =  VectorXd::Constant(NBNEUR, VREST); // VectorXd::Zero(NBNEUR); // -70.5 is approximately the resting potential of the Izhikevich neurons, as it is of the AdEx neurons used in Clopath's experiments
 
 	// Initializations. 
-	VectorXi firings = VectorXi::Zero(NBNEUR);
-	VectorXi firingsprev = VectorXi::Zero(NBNEUR);
-	VectorXd Iff = VectorXd::Zero(NBNEUR);
-	VectorXd Ilat = VectorXd::Zero(NBNEUR);
-	VectorXd I;
 	VectorXd xplast_ff = VectorXd::Zero(FFRFSIZE);
 	VectorXd xplast_lat = VectorXd::Zero(NBNEUR);
 	VectorXd vneg = v;
 	VectorXd vpos = v;
-	VectorXd vprev = v;
-	VectorXd vprevprev = v;
 
 	// Correct initialization for vlongtrace.
-	VectorXd vlongtrace = (v.array() - THETAVLONGTRACE).cwiseMax(0);
+	VectorXd vlongtrace = VectorXd::Constant(NBNEUR, VREST - THETAVLONGTRACE).cwiseMax(0);
 
 	VectorXi ZeroV = VectorXi::Zero(NBNEUR); VectorXi OneV = VectorXi::Constant(NBNEUR, 1); 
-	VectorXd ZeroLGN = VectorXd::Zero(FFRFSIZE); VectorXd OneLGN = VectorXd::Constant(FFRFSIZE, 1.0); 
 	VectorXd z = VectorXd::Zero(NBNEUR);
 	VectorXd wadap = VectorXd::Zero(NBNEUR);
 	VectorXd vthresh = VectorXd::Constant(NBNEUR, VTREST);
-	VectorXd refractime  = VectorXd::Zero(NBNEUR);
 	VectorXi isspiking = VectorXi::Zero(NBNEUR);
-	VectorXd EachNeurLTD = VectorXd::Zero(NBNEUR);
-	VectorXd EachNeurLTP = VectorXd::Zero(NBNEUR);
 
-	MatrixXi spikesthisstepFF(NBNEUR, FFRFSIZE);
 	MatrixXi spikesthisstep(NBNEUR, NBNEUR);
 
 	double ALTDS[NBNEUR]; 
@@ -416,7 +408,6 @@ int main(int argc, char* argv[])
 	VectorXd lgnratesS1 = VectorXd::Zero(FFRFSIZE);
 	VectorXd lgnratesS2 = VectorXd::Zero(FFRFSIZE);
 	VectorXd lgnfirings = VectorXd::Zero(FFRFSIZE);
-	VectorXd lgnfiringsprev = VectorXd::Zero(FFRFSIZE);
 
 	VectorXd sumwff = VectorXd::Zero(NBPRES);
 	VectorXd sumw = VectorXd::Zero(NBPRES);
@@ -535,9 +526,6 @@ int main(int argc, char* argv[])
 		v.fill(Eleak);
 		resps.col(numpres % NBRESPS).setZero();
 		lgnfirings.setZero();
-		lgnfiringsprev.setZero();
-		firings.setZero();
-		firingsprev.setZero();
 		for (int ni = 0; ni < NBNEUR ; ni++) {
 			for (int nj = 0; nj < NBNEUR ; nj++) {
 				incomingspikes[ni][nj].fill(0);
@@ -547,57 +535,26 @@ int main(int argc, char* argv[])
 		// Stimulus presentation
 		for (int numstepthispres = 0; numstepthispres < NBSTEPSPERPRES; numstepthispres++) {
 			// We determine FF spikes, based on the specified lgnrates:
-			lgnfiringsprev = lgnfirings;
 
-			if (
-				(PHASE == PULSE && numstepthispres >= (double)(PULSESTART)/dt && numstepthispres < (double)(PULSESTART + PULSETIME)/dt) || // In the PULSE case, inputs only fire for a short period of time
-				(PHASE != PULSE && numstepthispres < NBSTEPSPERPRES - ((double)TIMEZEROINPUT / dt)) // Otherwise, inputs only fire until the 'relaxation' period at the end of each presentation
-			) { 
+			// In the PULSE case, inputs only fire for a short period of time
+			const bool is_pulse_cond = PHASE == PULSE && numstepthispres >= (double)(PULSESTART)/dt && numstepthispres < (double)(PULSESTART + PULSETIME)/dt;
+
+			// Otherwise, inputs only fire until the 'relaxation' period at the end of each presentation
+			const bool is_not_pulse_cond = PHASE != PULSE && numstepthispres < NBSTEPSPERPRES - ((double)TIMEZEROINPUT / dt);
+
+			if (PHASE != SPONTANEOUS && (is_pulse_cond || is_not_pulse_cond)) { 
 				for (int nn=0; nn < FFRFSIZE; nn++) {
 					lgnfirings(nn) = (rand() / (double)RAND_MAX < abs(lgnrates(nn)) ? 1.0 : 0.0); // Note that this may go non-poisson if the specified lgnrates are too high (i.e. not << 1.0)
 				}
 			} else {
 				lgnfirings.setZero();
 			}
-			
-			if (PHASE == SPONTANEOUS) {
-				lgnfirings.setZero();
-			}
-			// We compute the feedforward input:
-			Iff.setZero();
-			// Using delays for FF connections from LGN makes the system MUCH slower, and doesn't change much. So we don't.
-			/*
-			// Compute the FF input from incoming spikes from LGN... as set in the *previous* timestep...
-			// SLOW !
-			spikesthisstepFF.setZero();
-			for (int ni=0; ni< NBE; ni++) // Inhibitory cells don't receive FF input...
-				for (int nj=0; nj< FFRFSIZE; nj++)
-				{
-					if (incomingFFspikes[ni][nj](numstep % delaysFF[nj][ni]) > 0){
-						Iff(ni) += wff(ni, nj) ;
-						spikesthisstepFF(ni, nj) = 1;
-						incomingFFspikes[ni][nj](numstep % delaysFF[nj][ni]) = 0;
-					}
-				}
 
-			Iff *= VSTIM;
-			// Send the spike through the FF connections
-			// Note: ni is the source LGN cell (and therefore the synapse number on neuron nj), nj is the destination neuron
-			for (int ni=0; ni < FFRFSIZE; ni++){
-				if (!lgnfirings[ni]) continue;
-				for (int nj=0; nj < NBNEUR; nj++){
-					incomingFFspikes[nj][ni]( (numstep + delaysFF[ni][nj]) % delaysFF[ni][nj] ) = 1;  // Yeah, (x+y) mod y = x mod y.
-
-				}
-			}
-			*/
-
-			// This, which ignores FF delays, is much faster.... MAtrix multiplications courtesy of the Eigen library.
-			Iff =  wff * lgnfirings * VSTIM;
-			// Now we compute the lateral inputs. Remember that incomingspikes is a circular array.
-
+			// We compute the feedforward input: (see original comments)
+			VectorXd Iff = wff * lgnfirings * VSTIM;
 			VectorXd LatInput = VectorXd::Zero(NBNEUR);
 
+			// MatrixXi spikesthisstep = MatrixXi::Zero(NBNEUR, NBNEUR);
 			spikesthisstep.setZero();
 			for (int ni = 0; ni < NBNEUR; ni++) {
 				for (int nj = 0; nj< NBNEUR; nj++) {
@@ -614,30 +571,37 @@ int main(int argc, char* argv[])
 				}
 			}
 
-			Ilat = LATCONNMULT * VSTIM * LatInput;
+			VectorXd Ilat = LATCONNMULT * VSTIM * LatInput;
 
 			// This disables all lateral connections - Inhibitory and excitatory
-			if (NOLAT)
+			if (NOLAT) {
 				Ilat.setZero();
+			}
 
 			// Total input (FF + lateral + frozen noise):
-			I = Iff + Ilat + posnoisein.col(numstep % NBNOISESTEPS) + negnoisein.col(numstep % NBNOISESTEPS);  //- InhibVect;
+			VectorXd I = Iff + Ilat + posnoisein.col(numstep % NBNOISESTEPS) + negnoisein.col(numstep % NBNOISESTEPS);  //- InhibVect;
 
-			vprev = v;
-			vprevprev = vprev;
+			// Before v update (vprev)
+			vlongtrace += (dt / TAUVLONGTRACE) * ((v.array() - THETAVLONGTRACE).cwiseMax(0).matrix() - vlongtrace);
+			vlongtrace = vlongtrace.cwiseMax(0); // Just in case.
+
+			vneg = vneg + (dt / TAUVNEG) * (v - vneg);
+			vpos = vpos + (dt / TAUVPOS) * (v - vpos);
 
 			// AdEx  neurons:
 			if (NOSPIKE) {
-				for (int nn=0; nn < NBNEUR; nn++)
+				for (int nn=0; nn < NBNEUR; nn++) {
 					v(nn) += (dt/C) * (-Gleak * (v(nn)-Eleak) + z(nn) - wadap(nn) ) + I(nn);
-			}
-			else {
-				for (int nn=0; nn < NBNEUR; nn++)
+				}
+			} else {
+				for (int nn=0; nn < NBNEUR; nn++) {
 					v(nn) += (dt/C) * (-Gleak * (v(nn)-Eleak) + z(nn) - wadap(nn) + Gleak * DELTAT * exp((v(nn) - vthresh(nn)) / DELTAT ) ) + I(nn);
+				}
 			}
 
 			v = (isspiking.array() > 0).select(VPEAK - 0.001, v); // Currently-spiking neurons are clamped at VPEAK.
 			v = (isspiking.array() == 1).select(VRESET, v); //  Neurons that have finished their spiking are set to VRESET.
+			v = v.cwiseMax(MINV);
 			
 			// Updating some AdEx / plasticity variables
 			z = (isspiking.array() == 1).select(Isp, z);
@@ -647,15 +611,11 @@ int main(int argc, char* argv[])
 			// Spiking period elapsing... (in paractice, this is not really needed since the spiking period NBSPIKINGSTEPS is set to 1 for all current experiments)
 			isspiking = (isspiking.array() - 1).cwiseMax(0);
 
-			v = v.cwiseMax(MINV);
-			refractime = (refractime.array() - dt).cwiseMax(0);
-
 			// "correct" version: Firing neurons are crested / clamped at VPEAK, will be reset to VRESET  after the spiking time has elapsed.
-			firingsprev = firings;
+			VectorXi firings = VectorXi::Zero(NBNEUR);
 			if (!NOSPIKE) {
 				firings = (v.array() > VPEAK).select(OneV, ZeroV);
 				v = (firings.array() > 0).select(VPEAK, v);
-				refractime = (firings.array() > 0).select(REFRACTIME, refractime); // In practice, REFRACTIME is set to 0 for all current experiments.
 				isspiking = (firings.array() > 0).select(NBSPIKINGSTEPS, isspiking);
 
 				// Send the spike through the network. Remember that incomingspikes is a circular array.
@@ -667,85 +627,36 @@ int main(int argc, char* argv[])
 				}
 			}
 
-			// "Wrong" version: firing if above threshold, immediately reset at Vreset.
-			//firings = (v.array() > vthresh.array()).select(OneV, ZeroV);
-			//v = (firings.array() > 0).select(VRESET, v);
-
-			// AdEx variables update:
-
-			//wadap = (isspiking.array() > 0).select(wadap.array(), wadap.array() + (dt / TAUADAP) * (A * (v.array() - Eleak) - wadap.array())); // clopathlike (while spiking, don't modify wadap.
 			wadap =  wadap.array() + (dt / TAUADAP) * (A * (v.array() - Eleak) - wadap.array());
 			z = z + (dt / TAUZ) * -1.0 * z;
 			vthresh = vthresh.array() + (dt / TAUVTHRESH) * (-1.0 * vthresh.array() + VTREST);
 			
-			// Wrong - using the raw v rather than "depolarization" v-vleak (or v-vthresh)
-			//vlongtrace = vlongtrace + (dt / TAUVLONGTRACE) * (v - vlongtrace);
-
-			// Correct: using depolarization (or more precisely depolarization above THETAVLONGTRACE))
-			vlongtrace += (dt / TAUVLONGTRACE) * ((vprevprev.array() - THETAVLONGTRACE).cwiseMax(0).matrix() - vlongtrace);
-			vlongtrace = vlongtrace.cwiseMax(0); // Just in case.
-			
-			// This is also wrong - the dt/tau should not apply to the increments (firings / lgnfirings). However that should only be a strict constant multiplication, which could be included into the ALTP/ALTP constants.
-			/*
-			xplast_lat += (dt / TAUXPLAST) * (firings.cast<double>() - xplast_lat);
-			xplast_ff += (dt / TAUXPLAST) * (lgnfirings - xplast_ff);
-			vneg += (dt / TAUVNEG) * (v - vneg);
-			vpos += (dt / TAUVPOS) * (v - vpos);*/
-
-			// "Correct" version (I think):
-			//xplast_lat = xplast_lat + firings.cast<double>() - (dt / TAUXPLAST) * xplast_lat;
-			//xplast_ff = xplast_ff + lgnfirings - (dt / TAUXPLAST) *  xplast_ff;
-
-			//Clopath-like version - the firings are also divided by tauxplast. Might cause trouble if dt is modified? 
+			//Clopath-like version
 			xplast_lat = xplast_lat + firings.cast<double>() / TAUXPLAST - (dt / TAUXPLAST) * xplast_lat;
 			xplast_ff = xplast_ff + lgnfirings / TAUXPLAST - (dt / TAUXPLAST) *  xplast_ff;
 
-			vneg = vneg + (dt / TAUVNEG) * (vprevprev - vneg);
-			vpos = vpos + (dt / TAUVPOS) * (vprevprev - vpos);
-			
 			// Plasticity !
 			if (PHASE == LEARNING && numpres >= 401) {
 				// For each neuron, we compute the quantities by which any synapse reaching this given neuron should be modified, if the synapse's firing / recent activity (xplast) commands modification.
-				for (int nn=0; nn <  NBE; nn++) {
-					EachNeurLTD(nn) =  dt * (-ALTDS[nn] / VREF2) * vlongtrace(nn) * vlongtrace(nn) * ((vneg(nn) - THETAVNEG) <0 ? 0 : (vneg(nn) -THETAVNEG));
-				}
+				for (int nn = 0; nn < NBE; nn++) {
+					double eachNeurLTD =  dt * (-ALTDS[nn] / VREF2) * vlongtrace(nn) * vlongtrace(nn) * MAX(0, vneg(nn) - THETAVNEG);
+					double eachNeurLTP =  dt * ALTP  * ALTPMULT * MAX(0, vpos(nn) - THETAVNEG) * MAX(0, v(nn) - THETAVPOS);
 
-				for (int nn=0; nn < NBE; nn++) {
-					EachNeurLTP(nn) =  dt * ALTP  * ALTPMULT * ((vpos(nn) - THETAVNEG)<0 ? 0 : (vpos(nn) - THETAVNEG) ) * ((v(nn) - THETAVPOS) < 0 ? 0 : (v(nn) - THETAVPOS));
-				}
-
-				// Feedforward synapses, then lateral synapses.
-				for (int syn=0; syn < FFRFSIZE; syn++) {
-					for (int nn=0; nn < NBE; nn++) {
-						wff(nn, syn) += xplast_ff(syn) * EachNeurLTP(nn);
-					}
-				}
-
-				for (int syn=0; syn < FFRFSIZE; syn++) {
-					if (lgnfirings(syn) > 1e-10) {
-						for (int nn=0; nn < NBE; nn++) {
-							//if (spikesthisstepFF(nn, syn) > 0)
-							wff(nn, syn) +=  EachNeurLTD(nn) * (1.0 + wff(nn,syn) * WPENSCALE);
+					for (int syn = 0; syn < FFRFSIZE; syn++) {
+						wff(nn, syn) += xplast_ff(syn) * eachNeurLTP;
+						if (lgnfirings(syn) > 1e-10) {
+							wff(nn, syn) += eachNeurLTD * (1.0 + wff(nn,syn) * WPENSCALE);
 						}
 					}
-				}
 
-				for (int syn=0; syn < NBE; syn++) {
-					for (int nn=0; nn < NBE; nn++) {
-						w(nn, syn) += xplast_lat(syn) * EachNeurLTP(nn);
-					}
-				}
-				
-				for (int syn=0; syn < NBE; syn++) {
-					// if (firingsprev(syn) > 1e-10)
-					for (int nn=0; nn < NBE; nn++) {
+					for (int syn = 0; syn < NBE; syn++) {
+						w(nn, syn) += xplast_lat(syn) * eachNeurLTP;
 						if (spikesthisstep(nn, syn) > 0) {
-							w(nn, syn) +=  EachNeurLTD(nn) * (1.0 + w(nn,syn) * WPENSCALE);
+							w(nn, syn) += eachNeurLTD * (1.0 + w(nn,syn) * WPENSCALE);
 						}
 					}
 				}
-						
-				w = w - w.cwiseProduct(MatrixXd::Identity(NBNEUR, NBNEUR)); // Diagonal lateral weights are 0!
+				w.diagonal().setZero();
 				wff = wff.cwiseMax(0);
 				w.leftCols(NBE) = w.leftCols(NBE).cwiseMax(0);
 				w.rightCols(NBI) = w.rightCols(NBI).cwiseMin(0);
@@ -755,10 +666,7 @@ int main(int argc, char* argv[])
 
 			// Storing some indicator variablkes...
 
-			//vs.col(numstep) = v;
-			//spikes.col(numstep) = firings;
 			resps.col(numpres % NBRESPS) += firings;
-			//respssumv.col(numpres % NBRESPS) += v.cwiseMin(vthresh); // We only record subthreshold potentials ! 
 			respssumv.col(numpres % NBRESPS) += v.cwiseMin(VTMAX); // We only record subthreshold potentials ! 
 			lastnspikes.col(numstep % NBLASTSPIKESSTEPS) = firings;
 			lastnv.col(numstep % NBLASTSPIKESSTEPS) = v;
@@ -791,9 +699,7 @@ int main(int argc, char* argv[])
 			switch(PHASE) {
 				case TESTING: {
 					myfile.open("resps_test.txt", ios::trunc | ios::out);  myfile << endl << resps << endl; myfile.close();
-					//myfile.open("respssumv_test.txt", ios::trunc | ios::out);  myfile << endl << respssumv << endl; myfile.close();
 					myfile.open("lastnv_test"+nolatindicator+noinhindicator+".txt", ios::trunc | ios::out);  myfile << endl << lastnv << endl; myfile.close();
-					//myfile.open("lastnv_spont"+nolatindicator+noinhindicator+".txt", ios::trunc | ios::out);  myfile << endl << lastnv << endl; myfile.close();
 				} break;
 				case SPONTANEOUS: {
 					myfile.open("resps_spont.txt", ios::trunc | ios::out);  myfile << endl << resps << endl; myfile.close();
@@ -804,7 +710,6 @@ int main(int argc, char* argv[])
 					myfile.open("resps_pulse_"+std::to_string((long long int)STIM1)+".txt", ios::trunc | ios::out);  myfile << endl << resps << endl; myfile.close();
 					myfile.open("lastnspikes_pulse"+nolatindicator+noinhindicator+".txt", ios::trunc | ios::out);  myfile << endl << lastnspikes << endl; myfile.close();
 					myfile.open("lastnspikes_pulse_"+std::to_string((long long int)STIM1)+nolatindicator+noinhindicator+".txt", ios::trunc | ios::out);  myfile << endl << lastnspikes << endl; myfile.close();
-					//myfile.open("lastnv_pulse_"+std::to_string((long long int)STIM1)+nolatindicator+noinhindicator+".txt", ios::trunc | ios::out);  myfile << endl << lastnv << endl; myfile.close();
 				} break;
 				case MIXING: {
 					myfile.open("respssumv_mix" + nolatindicator + noinhindicator + nospikeindicator + ".txt", ios::trunc | ios::out);  myfile << endl << respssumv << endl; myfile.close();
@@ -830,17 +735,7 @@ int main(int argc, char* argv[])
 					myfile.open("resps.txt", ios::trunc | ios::out);
 					myfile << endl << resps << endl;
 					myfile.close();
-					//myfile.open("patterns.txt", ios::trunc | ios::out);  myfile << endl << patterns << endl; myfile.close();
-					/*myfile.open("lgninputs.txt", ios::trunc | ios::out); myfile << endl << lgninputs << endl; myfile.close();
-					myfile.open("meanvneg.txt", ios::trunc | ios::out); myfile << endl << meanvneg << endl; myfile.close();
-					myfile.open("meanvpos.txt", ios::trunc | ios::out); myfile << endl << meanvpos << endl; myfile.close();
-					myfile.open("meanENLTD.txt", ios::trunc | ios::out); myfile << endl << meanENLTD << endl; myfile.close();
-					myfile.open("meanENLTP.txt", ios::trunc | ios::out); myfile << endl << meanENLTP << endl; myfile.close();*/
-					/*myfile.open("meanvlt.txt", ios::trunc | ios::out);
-					myfile << endl << meanvlongtrace << endl;
-					myfile.close();*/
-					//myfile.open("sumwff.txt", ios::trunc | ios::out); myfile << endl << sumwff << endl;
-					//myfile.close();
+
 					saveWeights(w, "w.dat");
 					saveWeights(wff, "wff.dat");
 				} break;
@@ -871,8 +766,7 @@ MatrixXd poissonMatrix(const MatrixXd& lambd) {
 	MatrixXd p = MatrixXd::Constant(lambd.rows(),lambd.cols(),1.0);
 	MatrixXd matselect = MatrixXd::Constant(lambd.rows(),lambd.cols(),1.0);
 
-	while ((matselect.array() >0).any())
-	{
+	while ((matselect.array() > 0).any()) {
 		k = (matselect.array() > 0).select(k.array() + 1, k); // wherever p > L (after the first loop, otherwise everywhere), k += 1
 		p = p.cwiseProduct(MatrixXd::Random(p.rows(),p.cols()).cwiseAbs());  // p = p * random[0,1]
 		matselect = (p.array() > L.array()).select(matselect, -1.0);
