@@ -381,23 +381,23 @@ int main(int argc, char* argv[])
 		negnoisein.setZero();
 	}
 
-	VectorXd v =  VectorXd::Constant(NBNEUR, VREST); // VectorXd::Zero(NBNEUR); // -70.5 is approximately the resting potential of the Izhikevich neurons, as it is of the AdEx neurons used in Clopath's experiments
+	VectorXd v_arr =  VectorXd::Constant(NBNEUR, VREST); // VectorXd::Zero(NBNEUR); // -70.5 is approximately the resting potential of the Izhikevich neurons, as it is of the AdEx neurons used in Clopath's experiments
 
 	// Initializations. 
 	VectorXd xplast_ff = VectorXd::Zero(FFRFSIZE);
 	VectorXd xplast_lat = VectorXd::Zero(NBNEUR);
-	VectorXd vneg = v;
-	VectorXd vpos = v;
+	VectorXd vneg_arr = v_arr;
+	VectorXd vpos_arr = v_arr;
 
 	// Correct initialization for vlongtrace.
-	VectorXd vlongtrace = VectorXd::Constant(NBNEUR, VREST - THETAVLONGTRACE).cwiseMax(0);
+	VectorXd vlongtrace_arr = VectorXd::Constant(NBNEUR, VREST - THETAVLONGTRACE).cwiseMax(0);
 
 	VectorXi ZeroV = VectorXi::Zero(NBNEUR);
 	VectorXi OneV = VectorXi::Constant(NBNEUR, 1);
 	VectorXd z = VectorXd::Zero(NBNEUR);
 	VectorXd wadap = VectorXd::Zero(NBNEUR);
 	VectorXd vthresh = VectorXd::Constant(NBNEUR, VTREST);
-	VectorXi isspiking = VectorXi::Zero(NBNEUR);
+	VectorXi isspiking_arr = VectorXi::Zero(NBNEUR);
 
 	double ALTDS[NBNEUR]; 
 	for (int nn = 0; nn < NBNEUR; nn++) {
@@ -536,7 +536,7 @@ int main(int argc, char* argv[])
 		lgnrates *= (dt/1000.0);  // LGN rates from the pattern file are expressed in Hz. We want it in rate per dt, and dt itself is expressed in ms.
 
 		// At the beginning of every presentation, we reset everything ! (it is important for the random-patches case which tends to generate epileptic self-sustaining firing; 'normal' learning doesn't need it.)
-		v.fill(Eleak);
+		v_arr.fill(Eleak);
 		resps.col(numpres % NBRESPS).setZero();
 		lgnfirings.setZero();
 		int incoming_spikes[NBNEUR][NBNEUR] = {0};
@@ -579,58 +579,78 @@ int main(int argc, char* argv[])
 			}
 
 			// Total input (FF + lateral + frozen noise):
-			VectorXd I = Iff + Ilat + posnoisein.col(numstep % NBNOISESTEPS) + negnoisein.col(numstep % NBNOISESTEPS);  //- InhibVect;
+			VectorXd I_arr = Iff + Ilat + posnoisein.col(numstep % NBNOISESTEPS) + negnoisein.col(numstep % NBNOISESTEPS);  //- InhibVect;
 
-			// Before v update (vprev)
-			vlongtrace += (dt / TAUVLONGTRACE) * ((v.array() - THETAVLONGTRACE).cwiseMax(0).matrix() - vlongtrace);
-			vlongtrace = vlongtrace.cwiseMax(0); // Just in case.
+			for (int nn = 0; nn < NBNEUR; nn++) {
+				double I = I_arr(nn);
+				double vlongtrace = vlongtrace_arr(nn);
+				double v = v_arr(nn);
+				double vneg = vneg_arr(nn);
+				double vpos = vpos_arr(nn);
 
-			vneg = vneg + (dt / TAUVNEG) * (v - vneg);
-			vpos = vpos + (dt / TAUVPOS) * (v - vpos);
+				vlongtrace += (dt / TAUVLONGTRACE) * (MAX(0, v - THETAVLONGTRACE) - vlongtrace);
+				vlongtrace = MAX(0, vlongtrace);
+
+				vneg += (dt / TAUVNEG) * (v - vneg);
+				vpos += (dt / TAUVPOS) * (v - vpos);
+
+				vlongtrace_arr(nn) = vlongtrace;
+				v_arr(nn) = v;
+				vneg_arr(nn) = vneg;
+				vpos_arr(nn) = vpos;
+			}
+
+			// // Before v update (vprev)
+			// vlongtrace_arr += (dt / TAUVLONGTRACE) * ((v_arr.array() - THETAVLONGTRACE).cwiseMax(0).matrix() - vlongtrace_arr);
+			// vlongtrace_arr = vlongtrace_arr.cwiseMax(0); // Just in case.
+
+				// vneg_arr = vneg_arr + (dt / TAUVNEG) * (v_arr - vneg_arr);
+			// vpos_arr = vpos_arr + (dt / TAUVPOS) * (v_arr - vpos_arr);
 
 			// AdEx  neurons:
 			if (NOSPIKE) {
 				for (int nn = 0; nn < NBNEUR; nn++) {
-					v(nn) += (dt/C) * (-Gleak * (v(nn)-Eleak) + z(nn) - wadap(nn) ) + I(nn);
+					v_arr(nn) += (dt/C) * (-Gleak * (v_arr(nn)-Eleak) + z(nn) - wadap(nn) ) + I_arr(nn);
 				}
 			} else {
 				for (int nn = 0; nn < NBNEUR; nn++) {
-					v(nn) += (dt/C) * (-Gleak * (v(nn)-Eleak) + z(nn) - wadap(nn) + Gleak * DELTAT * exp((v(nn) - vthresh(nn)) / DELTAT ) ) + I(nn);
+					v_arr(nn) += (dt/C) * (-Gleak * (v_arr(nn)-Eleak) + z(nn) - wadap(nn) + Gleak * DELTAT * exp((v_arr(nn) - vthresh(nn)) / DELTAT ) ) + I_arr(nn);
 				}
 			}
 
-			v = (isspiking.array() > 0).select(VPEAK - 0.001, v); // Currently-spiking neurons are clamped at VPEAK.
-			v = (isspiking.array() == 1).select(VRESET, v); //  Neurons that have finished their spiking are set to VRESET.
-			v = v.cwiseMax(MINV);
+			v_arr = (isspiking_arr.array() > 0).select(VPEAK - 0.001, v_arr); // Currently-spiking neurons are clamped at VPEAK.
+			v_arr = (isspiking_arr.array() == 1).select(VRESET, v_arr); //  Neurons that have finished their spiking are set to VRESET.
+			v_arr = v_arr.cwiseMax(MINV);
 
 			// After v update
 			
 			// Updating some AdEx / plasticity variables
-			z = (isspiking.array() == 1).select(Isp, z);
-			vthresh = (isspiking.array() == 1).select(VTMAX, vthresh);
-			wadap = (isspiking.array() == 1).select(wadap.array() + B, wadap.array());
+			z = (isspiking_arr.array() == 1).select(Isp, z);
+			vthresh = (isspiking_arr.array() == 1).select(VTMAX, vthresh);
+			wadap = (isspiking_arr.array() == 1).select(wadap.array() + B, wadap.array());
 			
 			// Spiking period elapsing... (in paractice, this is not really needed since the spiking period NBSPIKINGSTEPS is set to 1 for all current experiments)
-			isspiking = (isspiking.array() - 1).cwiseMax(0);
+			isspiking_arr = (isspiking_arr.array() - 1).cwiseMax(0);
 
 			// "correct" version: Firing neurons are crested / clamped at VPEAK, will be reset to VRESET  after the spiking time has elapsed.
 			VectorXi firings = VectorXi::Zero(NBNEUR);
 			if (!NOSPIKE) {
-				firings = (v.array() > VPEAK).select(OneV, ZeroV);
-				v = (firings.array() > 0).select(VPEAK, v);
-				isspiking = (firings.array() > 0).select(NBSPIKINGSTEPS, isspiking);
+				firings = (v_arr.array() > VPEAK).select(OneV, ZeroV);
+				v_arr = (firings.array() > 0).select(VPEAK, v_arr);
+				isspiking_arr = (firings.array() > 0).select(NBSPIKINGSTEPS, isspiking_arr);
 
 				// Send the spike through the network. Remember that incomingspikes is a circular array.
 				for (int ni = 0; ni < NBNEUR; ni++) {
 					if (!firings[ni]) continue;
 					for (int nj=0; nj < NBNEUR; nj++) {
 						int fire = nj != ni;
+
 						incoming_spikes[nj][ni] |= fire << delays[ni][nj];
 					}
 				}
 			}
 
-			wadap =  wadap.array() + (dt / TAUADAP) * (A * (v.array() - Eleak) - wadap.array());
+			wadap =  wadap.array() + (dt / TAUADAP) * (A * (v_arr.array() - Eleak) - wadap.array());
 			z = z + (dt / TAUZ) * -1.0 * z;
 			vthresh = vthresh.array() + (dt / TAUVTHRESH) * (-1.0 * vthresh.array() + VTREST);
 			
@@ -642,8 +662,8 @@ int main(int argc, char* argv[])
 			if (PHASE == LEARNING && numpres >= 401) {
 				// For each neuron, we compute the quantities by which any synapse reaching this given neuron should be modified, if the synapse's firing / recent activity (xplast) commands modification.
 				for (int nn = 0; nn < NBE; nn++) {
-					double eachNeurLTD =  dt * (-ALTDS[nn] / VREF2) * vlongtrace(nn) * vlongtrace(nn) * MAX(0, vneg(nn) - THETAVNEG);
-					double eachNeurLTP =  dt * ALTP  * ALTPMULT * MAX(0, vpos(nn) - THETAVNEG) * MAX(0, v(nn) - THETAVPOS);
+					double eachNeurLTD =  dt * (-ALTDS[nn] / VREF2) * vlongtrace_arr(nn) * vlongtrace_arr(nn) * MAX(0, vneg_arr(nn) - THETAVNEG);
+					double eachNeurLTP =  dt * ALTP  * ALTPMULT * MAX(0, vpos_arr(nn) - THETAVNEG) * MAX(0, v_arr(nn) - THETAVPOS);
 
 					for (int syn = 0; syn < FFRFSIZE; syn++) {
 						double lgnfirings_mul = lgnfirings(syn) > 1e-10 ? 1.0 : 0.0;
@@ -674,9 +694,9 @@ int main(int argc, char* argv[])
 			// Storing some indicator variablkes...
 
 			resps.col(numpres % NBRESPS) += firings;
-			respssumv.col(numpres % NBRESPS) += v.cwiseMin(VTMAX); // We only record subthreshold potentials ! 
+			respssumv.col(numpres % NBRESPS) += v_arr.cwiseMin(VTMAX); // We only record subthreshold potentials ! 
 			lastnspikes.col(numstep % NBLASTSPIKESSTEPS) = firings;
-			lastnv.col(numstep % NBLASTSPIKESSTEPS) = v;
+			lastnv.col(numstep % NBLASTSPIKESSTEPS) = v_arr;
 
 			// Tempus fugit.
 			numstep++;
@@ -689,7 +709,7 @@ int main(int argc, char* argv[])
 			cout << "TIME: " << (double)(clock() - tic) / (double)CLOCKS_PER_SEC <<endl;
 			tic = clock();
 			cout << "Total spikes for each neuron for this presentation: " << resps.col(numpres % NBRESPS).transpose() << endl;
-			cout << "Vlongtraces: " << vlongtrace.transpose() << endl;
+			cout << "Vlongtraces: " << vlongtrace_arr.transpose() << endl;
 			cout << " Max LGN rate (should be << 1.0): " << lgnrates.maxCoeff() << endl;
 		}
 		if ((numpres + 1) % 10000 == 0 || numpres + 1 == NBPRES) {
