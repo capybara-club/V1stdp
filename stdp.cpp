@@ -438,10 +438,6 @@ int main(int argc, char* argv[])
 
 	// DELAYPARAM should be a small value (3 to 6). It controls the median of the exponential.
 	int delays[NBNEUR][NBNEUR];
-	VectorXi incomingspikes[NBNEUR][NBNEUR];
-
-	MatrixXi incomingSpikes2 = MatrixXi::Zero(NBNEUR, NBNEUR);
-
 	for (int ni = 0; ni < NBNEUR; ni++) {
 		for (int nj = 0; nj < NBNEUR; nj++) {
 			double val = (double)rand() / (double)RAND_MAX;
@@ -453,7 +449,6 @@ int main(int argc, char* argv[])
 			}
 			if (mydelay > MAXDELAYDT) mydelay = 1;
 			delays[nj][ni] = mydelay;
-			incomingspikes[ni][nj] = VectorXi::Zero(mydelay); 
 		}
 	}
  
@@ -544,12 +539,7 @@ int main(int argc, char* argv[])
 		v.fill(Eleak);
 		resps.col(numpres % NBRESPS).setZero();
 		lgnfirings.setZero();
-		for (int ni = 0; ni < NBNEUR ; ni++) {
-			for (int nj = 0; nj < NBNEUR ; nj++) {
-				incomingspikes[ni][nj].fill(0);
-				incomingSpikes2(ni,nj) = 0;
-			}
-		}
+		int incoming_spikes[NBNEUR][NBNEUR] = {0};
 
 		// Stimulus presentation
 		for (int numstepthispres = 0; numstepthispres < NBSTEPSPERPRES; numstepthispres++) {
@@ -571,24 +561,12 @@ int main(int argc, char* argv[])
 
 			// We compute the feedforward input: (see original comments)
 			VectorXd LatInput = VectorXd::Zero(NBNEUR);
-			MatrixXi spikesthisstep = MatrixXi::Zero(NBNEUR, NBNEUR);
 			for (int ni = 0; ni < NBNEUR; ni++) {
 				for (int nj = 0; nj< NBNEUR; nj++) {
 					if (NOELAT && nj < 100 && ni < 100) continue; // If NOELAT, E-E synapses are disabled.
 					if (ni == nj) continue; // No autapses
 
-					int v = incomingSpikes2(ni,nj);
-					int b = v & 1;
-					incomingSpikes2(ni,nj) = v >> 1;
-					int b2 = incomingspikes[ni][nj](numstep % delays[nj][ni]);
-					ASSERT(b == b2);
-					// If there is a spike at that synapse for the current timestep, we add it to the lateral input for this neuron
-					if (incomingspikes[ni][nj](numstep % delays[nj][ni]) > 0) {
-						LatInput(ni) += w(ni, nj) * incomingspikes[ni][nj](numstep % delays[nj][ni]);
-						spikesthisstep(ni, nj) = 1;
-						// We erase any incoming spikes for this synapse/timestep 
-						incomingspikes[ni][nj](numstep % delays[nj][ni]) = 0;
-					}
+					LatInput(ni) += w(ni, nj) * (incoming_spikes[ni][nj] & 1);
 				}
 			}
 
@@ -645,8 +623,7 @@ int main(int argc, char* argv[])
 					if (!firings[ni]) continue;
 					for (int nj=0; nj < NBNEUR; nj++) {
 						int fire = nj != ni;
-						incomingspikes[nj][ni]( (numstep + delays[ni][nj]) % delays[ni][nj] ) = 1;
-						incomingSpikes2(nj,ni) = incomingSpikes2(nj,ni) | (fire << (delays[ni][nj] - 1));
+						incoming_spikes[nj][ni] |= fire << delays[ni][nj];
 					}
 				}
 			}
@@ -675,7 +652,7 @@ int main(int argc, char* argv[])
 
 					for (int syn = 0; syn < NBE; syn++) {
 						w(nn, syn) += xplast_lat(syn) * eachNeurLTP;
-						if (spikesthisstep(nn, syn) > 0) {
+						if (incoming_spikes[nn][syn] & 1) {
 							w(nn, syn) += eachNeurLTD * (1.0 + w(nn,syn) * WPENSCALE);
 						}
 					}
@@ -686,6 +663,12 @@ int main(int argc, char* argv[])
 				w.rightCols(NBI) = w.rightCols(NBI).cwiseMin(0);
 				wff = wff.cwiseMin(MAXW);
 				w = w.cwiseMin(MAXW);
+			}
+
+			for (int ni = 0; ni < NBNEUR; ni++) {
+				for (int nj = 0; nj< NBNEUR; nj++) {
+					incoming_spikes[nj][ni] = incoming_spikes[nj][ni] >> 1;
+				}
 			}
 
 			// Storing some indicator variablkes...
