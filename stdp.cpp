@@ -394,9 +394,9 @@ int main(int argc, char* argv[])
 
 	VectorXi ZeroV = VectorXi::Zero(NBNEUR);
 	VectorXi OneV = VectorXi::Constant(NBNEUR, 1);
-	VectorXd z = VectorXd::Zero(NBNEUR);
-	VectorXd wadap = VectorXd::Zero(NBNEUR);
-	VectorXd vthresh = VectorXd::Constant(NBNEUR, VTREST);
+	VectorXd z_arr = VectorXd::Zero(NBNEUR);
+	VectorXd wadap_arr = VectorXd::Zero(NBNEUR);
+	VectorXd vthresh_arr = VectorXd::Constant(NBNEUR, VTREST);
 	VectorXi isspiking_arr = VectorXi::Zero(NBNEUR);
 
 	double ALTDS[NBNEUR]; 
@@ -587,12 +587,26 @@ int main(int argc, char* argv[])
 				double v = v_arr(nn);
 				double vneg = vneg_arr(nn);
 				double vpos = vpos_arr(nn);
+				double z = z_arr(nn);
+				double wadap = wadap_arr(nn);
+				double vthresh = vthresh_arr(nn);
+				int is_spiking = isspiking_arr(nn);
 
 				vlongtrace += (dt / TAUVLONGTRACE) * (MAX(0, v - THETAVLONGTRACE) - vlongtrace);
 				vlongtrace = MAX(0, vlongtrace);
 
 				vneg += (dt / TAUVNEG) * (v - vneg);
 				vpos += (dt / TAUVPOS) * (v - vpos);
+
+				if (NOSPIKE) {
+					v += (dt/C) * (-Gleak * (v-Eleak) + z - wadap ) + I;
+				} else {
+					v += (dt/C) * (-Gleak * (v-Eleak) + z - wadap + Gleak * DELTAT * exp((v - vthresh) / DELTAT ) ) + I;
+				}
+
+				v = is_spiking > 0 ? VPEAK - 0.001 : v;
+				v = is_spiking == 1 ? VRESET : v;
+				v = MAX(MINV, v);
 
 				vlongtrace_arr(nn) = vlongtrace;
 				v_arr(nn) = v;
@@ -608,26 +622,26 @@ int main(int argc, char* argv[])
 			// vpos_arr = vpos_arr + (dt / TAUVPOS) * (v_arr - vpos_arr);
 
 			// AdEx  neurons:
-			if (NOSPIKE) {
-				for (int nn = 0; nn < NBNEUR; nn++) {
-					v_arr(nn) += (dt/C) * (-Gleak * (v_arr(nn)-Eleak) + z(nn) - wadap(nn) ) + I_arr(nn);
-				}
-			} else {
-				for (int nn = 0; nn < NBNEUR; nn++) {
-					v_arr(nn) += (dt/C) * (-Gleak * (v_arr(nn)-Eleak) + z(nn) - wadap(nn) + Gleak * DELTAT * exp((v_arr(nn) - vthresh(nn)) / DELTAT ) ) + I_arr(nn);
-				}
-			}
+			// if (NOSPIKE) {
+			// 	for (int nn = 0; nn < NBNEUR; nn++) {
+			// 		v_arr(nn) += (dt/C) * (-Gleak * (v_arr(nn)-Eleak) + z_arr(nn) - wadap_arr(nn) ) + I_arr(nn);
+			// 	}
+			// } else {
+			// 	for (int nn = 0; nn < NBNEUR; nn++) {
+			// 		v_arr(nn) += (dt/C) * (-Gleak * (v_arr(nn)-Eleak) + z_arr(nn) - wadap_arr(nn) + Gleak * DELTAT * exp((v_arr(nn) - vthresh_arr(nn)) / DELTAT ) ) + I_arr(nn);
+			// 	}
+			// }
 
-			v_arr = (isspiking_arr.array() > 0).select(VPEAK - 0.001, v_arr); // Currently-spiking neurons are clamped at VPEAK.
-			v_arr = (isspiking_arr.array() == 1).select(VRESET, v_arr); //  Neurons that have finished their spiking are set to VRESET.
-			v_arr = v_arr.cwiseMax(MINV);
+			// v_arr = (isspiking_arr.array() > 0).select(VPEAK - 0.001, v_arr); // Currently-spiking neurons are clamped at VPEAK.
+			// v_arr = (isspiking_arr.array() == 1).select(VRESET, v_arr); //  Neurons that have finished their spiking are set to VRESET.
+			// v_arr = v_arr.cwiseMax(MINV);
 
 			// After v update
 			
 			// Updating some AdEx / plasticity variables
-			z = (isspiking_arr.array() == 1).select(Isp, z);
-			vthresh = (isspiking_arr.array() == 1).select(VTMAX, vthresh);
-			wadap = (isspiking_arr.array() == 1).select(wadap.array() + B, wadap.array());
+			z_arr = (isspiking_arr.array() == 1).select(Isp, z_arr);
+			vthresh_arr = (isspiking_arr.array() == 1).select(VTMAX, vthresh_arr);
+			wadap_arr = (isspiking_arr.array() == 1).select(wadap_arr.array() + B, wadap_arr.array());
 			
 			// Spiking period elapsing... (in paractice, this is not really needed since the spiking period NBSPIKINGSTEPS is set to 1 for all current experiments)
 			isspiking_arr = (isspiking_arr.array() - 1).cwiseMax(0);
@@ -650,9 +664,9 @@ int main(int argc, char* argv[])
 				}
 			}
 
-			wadap =  wadap.array() + (dt / TAUADAP) * (A * (v_arr.array() - Eleak) - wadap.array());
-			z = z + (dt / TAUZ) * -1.0 * z;
-			vthresh = vthresh.array() + (dt / TAUVTHRESH) * (-1.0 * vthresh.array() + VTREST);
+			wadap_arr =  wadap_arr.array() + (dt / TAUADAP) * (A * (v_arr.array() - Eleak) - wadap_arr.array());
+			z_arr = z_arr + (dt / TAUZ) * -1.0 * z_arr;
+			vthresh_arr = vthresh_arr.array() + (dt / TAUVTHRESH) * (-1.0 * vthresh_arr.array() + VTREST);
 			
 			//Clopath-like version
 			xplast_lat = xplast_lat + firings.cast<double>() / TAUXPLAST - (dt / TAUXPLAST) * xplast_lat;
